@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  IMAGE_NAME: apecme/javsp-web
+  IMAGE_NAME: momeak18/javsp-web
 
 jobs:
   docker:

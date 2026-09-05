@@ -7,8 +7,8 @@
 JavSP WEB 基于 [JavSP](https://github.com/Yuukiy/JavSP)，用于从影片文件名识别番号、汇总多个站点的影片数据并生成媒体库可用的元数据。它提供浏览器界面，用于启动刮削、查看任务进度、管理配置预设，以及连接下载器和媒体服务器。
 
 [![Latest release](https://img.shields.io/github/v/release/APecme/JavSP-Web)](https://github.com/APecme/JavSP-Web/releases/latest)
-[![Docker Image](https://img.shields.io/docker/v/apecme/javsp-web?label=Docker&logo=docker)](https://hub.docker.com/r/apecme/javsp-web)
-[![Docker Pulls](https://img.shields.io/docker/pulls/apecme/javsp-web)](https://hub.docker.com/r/apecme/javsp-web)
+[![Docker Image](https://img.shields.io/docker/v/momeak18/javsp-web?label=Docker&logo=docker)](https://hub.docker.com/r/momeak18/javsp-web)
+[![Docker Pulls](https://img.shields.io/docker/pulls/momeak18/javsp-web)](https://hub.docker.com/r/momeak18/javsp-web)
 [![JavSP](https://img.shields.io/badge/core-JavSP-blue)](https://github.com/Yuukiy/JavSP)
 
 ## 功能特点
@@ -38,7 +38,7 @@ JavSP WEB 基于 [JavSP](https://github.com/Yuukiy/JavSP)，用于从影片文�
 docker run -d --name javsp-web --restart unless-stopped -p 8090:8090 `
   -v "${PWD}\data:/app/data" `
   -v "D:\Videos:/video" `
-  apecme/javsp-web:bata
+  momeak18/javsp-web:bata
 ```
 
 将 `D:\Videos` 替换为实际影片目录，然后访问 `http://127.0.0.1:8090/login`。Docker 版中填写路径时使用实际挂载的容器路径，例如 `/video/Movies` 或 `/mnt/movies`。
@@ -50,7 +50,7 @@ docker run -d --name javsp-web --restart unless-stopped -p 8090:8090 `
 ```yaml
 services:
   javsp-web:
-    image: apecme/javsp-web:bata
+    image: momeak18/javsp-web:bata
     container_name: javsp-web
     restart: unless-stopped
     ports:
