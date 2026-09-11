@@ -35,8 +35,7 @@ def translate_movie_info(info: MovieInfo):
             if 'trans_break' in result:
                 setattr(info, 'title_break', result['trans_break'])
         else:
-            logger.error('翻译标题时出错: ' + result['error'])
-            return False
+            logger.warning('翻译标题失败，保留原文: ' + result.get('error', '未知错误'))
     # 翻译简介
     if info.plot and Cfg().translator.fields.plot:
         result = translate(info.plot, Cfg().translator.engine, info.actress)
@@ -45,8 +44,7 @@ def translate_movie_info(info: MovieInfo):
             setattr(info, 'ori_plot', info.plot)
             info.plot = result['trans']
         else:
-            logger.error('翻译简介时出错: ' + result['error'])
-            return False
+            logger.warning('翻译简介失败，保留原文: ' + result.get('error', '未知错误'))
     return True
 
 def translate(texts, engine: Union[
@@ -174,25 +172,31 @@ def bing_translate(texts, api_key, to='zh-Hans'):
 
 
 _google_trans_wait = 60
+_google_cache = {}
 def google_trans(texts, to='zh_CN'):
     """使用Google翻译文本（默认翻译为简体中文）"""
     # API: https://www.jianshu.com/p/ce35d89c25c3
     # client参数的选择: https://github.com/lmk123/crx-selection-translate/issues/223#issue-184432017
     global _google_trans_wait
+    cache_key = (texts, to)
+    if cache_key in _google_cache:
+        return _google_cache[cache_key]
     url = f"https://translate.google.com.hk/translate_a/single?client=gtx&dt=t&dj=1&ie=UTF-8&sl=auto&tl={to}&q={texts}"
     proxies = read_proxy()
     r = requests.get(url, proxies=proxies)
-    while r.status_code == 429:
+    for _ in range(3):
+        if r.status_code != 429:
+            break
         logger.warning(f"HTTP {r.status_code}: {r.reason}: Google翻译请求超限，将等待{_google_trans_wait}秒后重试")
         time.sleep(_google_trans_wait)
         r = requests.get(url, proxies=proxies)
-        if r.status_code == 429:
-            _google_trans_wait += random.randint(60, 90)
+        _google_trans_wait = min(_google_trans_wait * 2, 300)
     if r.status_code == 200:
         result = r.json()
     else:
         result = {'error_code': r.status_code, 'error_msg': r.reason}
-    time.sleep(4) # Google翻译的API有QPS限制，因此需要等待一段时间
+    time.sleep(4) # Google翻译的API有QPS限制
+    _google_cache[cache_key] = result
     return result
 
 def claude_translate(texts, api_key, to="zh_CN"):

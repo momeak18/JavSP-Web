@@ -21,7 +21,7 @@ import yaml
 import requests
 from PIL import Image, ImageOps
 
-from .storage import CUSTOM_CRAWLERS_DIR, DATA_DIR, IS_FROZEN, VENDOR_DIR, get_cookiecloud_settings, get_disabled_built_in_crawlers, get_preset, load_tasks, read_config, save_tasks
+from .storage import CUSTOM_CRAWLERS_DIR, DATA_DIR, IS_FROZEN, VENDOR_DIR, append_scrape_history, get_cookiecloud_settings, get_disabled_built_in_crawlers, get_preset, load_tasks, read_config, read_scrape_history, save_tasks
 from .config_validation import load_base_config, validate_config_data
 from .cookiecloud import CookieCloudError, cookiecloud_summary, fetch_cookiecloud
 from .timeutils import now_iso
@@ -47,6 +47,7 @@ _TQDM_RE = re.compile(r"\d{1,3}%\|.*(?:\||$)|\b\d+(?:\.\d+)?(?:[KMGT]?i?B|B)\s*\
 _CRAWLER_TQDM_RE = re.compile(r"^(?P<name>javsp\.web\.[^:]+):\s*(?P<message>.*?)\s*:\s*\d{1,3}%\|")
 _IMAGE_TRANSFER_RE = re.compile(r"^(?:Downloading extrafanart \d+ from url:|[^\s:]+\.(?:jpg|jpeg|png|webp):\s*\d+(?:\.\d+)?[KMGT]?i?B)", re.IGNORECASE)
 _NATIVE_PROGRESS_LOG_RE = re.compile(r"^已下载剧照\s+\d+/\d+:")
+_HISTORY_LOCK = threading.RLock()
 _MAX_LOG_LINES = 5000
 _MAX_DISPLAY_LOG_LINES = 1500
 _GOOGLE_CAPTCHA_TIMEOUT = 300
@@ -116,6 +117,72 @@ def _task_name(input_path: str) -> str:
         except OSError:
             pass
     return path.stem if path.suffix.lower() in _VIDEO_EXTENSIONS else (path.name or input_path)
+
+
+def _source_key(path: str) -> str:
+    """Stable source identity used for deduplication, independent of host paths."""
+    target = Path(path).resolve()
+    video_root = Path(os.environ.get("JAVSP_WEB_VIDEO_ROOT", "/video")).resolve()
+    try:
+        return target.relative_to(video_root).as_posix()
+    except ValueError:
+        return target.as_posix()
+
+
+def _history_avid(path: str) -> str:
+    stem = Path(path).stem.upper()
+    match = re.search(r"([A-Z]{2,10}[-_]\d{2,7}|FC2[-_]?\d{5,7}|\d{6}[-_]\d{2,3})", stem)
+    return (match.group(1).replace("_", "-") if match else stem).strip()
+
+
+def _migrate_scrape_history() -> None:
+    """Seed legacy output into history once; legacy entries are intentionally marked source-unknown."""
+    marker = DATA_DIR / ".scrape-history-migrated"
+    if marker.exists():
+        return
+    existing = {(item["source"], item["avid"]) for item in read_scrape_history()}
+    output_root = Path(os.environ.get("JAVSP_WEB_OUTPUT_DIR", "/video/done"))
+    try:
+        nfos = sorted(output_root.rglob("*.nfo"))
+    except OSError:
+        nfos = []
+    for nfo in nfos:
+        try:
+            text = nfo.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        match = re.search(r'<uniqueid[^>]*type=["\']num["\'][^>]*>([^<]+)', text, re.I)
+        avid = (match.group(1).strip() if match else _history_avid(nfo.name))
+        record = ("__legacy__", avid)
+        if avid and record not in existing:
+            append_scrape_history(*record)
+            existing.add(record)
+    try:
+        marker.write_text(now_iso(), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _history_state(path: str) -> str:
+    source = _source_key(path)
+    avid = _history_avid(path)
+    records = read_scrape_history()
+    if any(item["source"] == source and item["avid"] == avid for item in records):
+        return "done"
+    if any(item["source"] == "__legacy__" and item["avid"].upper() == avid.upper() for item in records):
+        return "done"
+    active = load_tasks()
+    if any(item.get("status") in {"queued", "running"} and item.get("source_key") == source for item in active):
+        return "active"
+    return "new"
+
+
+def _task_output_complete(task: dict) -> bool:
+    organizer = task.get("file_organizer") if isinstance(task.get("file_organizer"), dict) else {}
+    organized = [Path(str(item)) for item in organizer.get("organized_files") or []]
+    generated = [Path(str(item)) for item in organizer.get("generated_files") or []]
+    nfos = [item for item in generated if item.suffix.lower() == ".nfo"]
+    return bool(organized and all(item.is_file() for item in organized) and nfos and all(item.is_file() for item in nfos))
 
 
 def _file_size(input_path: str) -> int:
@@ -751,8 +818,10 @@ def _restore_plan(task: dict) -> dict | None:
         return None
     if all(not path.exists() for path in original_files):
         mode = "move"
-    elif all(original.exists() and os.path.samefile(original, organized) for original, organized in zip(original_files, organized_files)):
+    elif all(original.is_file() and organized.is_file() and os.path.samefile(original, organized) for original, organized in zip(original_files, organized_files)):
         mode = "hardlink"
+    elif all(original.is_file() and organized.is_file() for original, organized in zip(original_files, organized_files)):
+        mode = "copy"
     else:
         return None
     return {"mode": mode, "original_files": original_files, "organized_files": organized_files, "generated_files": generated_files}
@@ -846,6 +915,15 @@ def _build_task_config(task_id: str, input_directory: str, preset_id: str) -> tu
     scanner = data.setdefault("scanner", {})
     scanner["input_directory"] = input_directory
     scanner["manual"] = False
+    summarizer = data.setdefault("summarizer", {})
+    summarizer["move_files"] = True
+    summarizer["copy_files"] = True
+    path_config = summarizer.setdefault("path", {})
+    output_root = os.environ.get("JAVSP_WEB_OUTPUT_DIR", "/video/done").rstrip("/") or "/video/done"
+    path_config["output_folder_pattern"] = f"{output_root}/{{actress}}/[{{num}}] {{title}}"
+    network = data.setdefault("network", {})
+    proxy = os.environ.get("JAVSP_PROXY_SERVER", "").strip()
+    network["proxy_server"] = proxy or None
     path = DATA_DIR / "task-config" / f"{task_id}.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -877,6 +955,8 @@ def create_task(
         "file_name": _task_name(input_directory),
         "size_bytes": _file_size(input_directory),
         "input_directory": input_directory,
+        "source_key": _source_key(input_directory),
+        "source_avid": _history_avid(input_directory),
         "status": "queued",
         "created_at": now_iso(),
         "started_at": None,
@@ -916,7 +996,11 @@ def create_tasks(
     if input_path.is_file():
         if not _passes_minimum_size(input_path, minimum_size, config_data):
             raise ValueError(f"影片文件小于预设的最小匹配文件大小，未创建任务（至少 {minimum_size} 字节）")
-        return [create_task(str(input_path), preset_id, batch_id=batch_id, task_concurrency=concurrency, source=source, schedule_id=schedule_id)]
+        _migrate_scrape_history()
+        with _HISTORY_LOCK:
+            if _history_state(str(input_path)) == "done":
+                return []
+            return [create_task(str(input_path), preset_id, batch_id=batch_id, task_concurrency=concurrency, source=source, schedule_id=schedule_id)]
     if not input_path.is_dir():
         raise ValueError("输入路径不是目录或文件")
     try:
@@ -941,10 +1025,15 @@ def create_tasks(
             continue
         seen_paths.add(identity)
         unique_videos.append(video)
-    return [
-        create_task(str(video), preset_id, batch_id=batch_id, task_concurrency=concurrency, source=source, schedule_id=schedule_id)
-        for video in unique_videos
-    ]
+    _migrate_scrape_history()
+    created: list[dict] = []
+    with _HISTORY_LOCK:
+        for video in unique_videos:
+            state = _history_state(str(video))
+            if state == "done":
+                continue
+            created.append(create_task(str(video), preset_id, batch_id=batch_id, task_concurrency=concurrency, source=source, schedule_id=schedule_id))
+    return created
 
 
 def _run_task(task: dict) -> None:
@@ -1028,15 +1117,20 @@ def _run_task(task: dict) -> None:
         code = process.wait()
         task["return_code"] = code
         cancelled = task["id"] in _cancelled_tasks or task.get("status") == "cancelled"
-        task["status"] = "cancelled" if cancelled else ("succeeded" if code == 0 else "failed")
+        output_complete = code == 0 and _task_output_complete(task)
+        task["status"] = "cancelled" if cancelled else ("succeeded" if output_complete else "failed")
         if cancelled:
             task["error"] = None
             _logs.setdefault(task["id"], []).append("任务已停止")
-        elif code == 0:
+        elif code == 0 and output_complete:
             _logs.setdefault(task["id"], []).append("JavSP 执行完成")
+            metadata = task.get("progress", {}).get("metadata", {}) if isinstance(task.get("progress"), dict) else {}
+            avid = str(metadata.get("dvdid") or task.get("source_avid") or _history_avid(task.get("input_directory", ""))).strip()
+            if avid:
+                append_scrape_history(str(task.get("source_key") or _source_key(task.get("input_directory", ""))), avid)
         else:
             no_result = any("个抓取器均未获取到影片信息" in line for line in _logs.get(task["id"], []))
-            task["error"] = "抓取器均未获取到影片信息" if no_result else f"JavSP 执行失败（退出码: {code}）"
+            task["error"] = "抓取器均未获取到影片信息" if no_result else ("输出文件不完整，未写入刮削历史" if code == 0 else f"JavSP 执行失败（退出码: {code}）")
             _logs.setdefault(task["id"], []).append(task["error"])
     except Exception as exc:  # noqa: BLE001
         task["status"] = "failed"

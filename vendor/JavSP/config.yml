@@ -107,6 +107,7 @@ crawler:
 summarizer:
   # 整理时是否移动文件: true-移动所有文件到新文件夹; false-数据保存到同级文件夹，不移动文件
   move_files: true
+  copy_files: false
 
   # 路径相关的选项
   path: 
@@ -222,9 +223,9 @@ translator:
   # 是否翻译各个字段
   fields: 
     # 是否翻译标题
-    title: true
+    title: false
     # 是否翻译剧情简介
-    plot: true
+    plot: false
   
 ################################
 other:

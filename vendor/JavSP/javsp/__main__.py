@@ -609,7 +609,7 @@ def RunNormalMode(all_movies):
             check_step(True)
             if Cfg().summarizer.move_files:
                 inner_bar.set_description('移动影片文件')
-                movie.rename_files(Cfg().summarizer.path.hard_link)
+                movie.rename_files(Cfg().summarizer.path.hard_link, Cfg().summarizer.copy_files)
                 check_step(True)
                 progress_event('file_organizer', original_files=list(movie.files), organized_files=list(getattr(movie, 'new_paths', []) or []), generated_files=[movie.nfo_file, movie.fanart_file, movie.poster_file])
                 logger.info(f'整理完成，相关文件已保存到: {movie.save_dir}\n')

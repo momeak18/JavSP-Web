@@ -28,6 +28,7 @@ QBITTORRENT_FILE = DATA_DIR / "qbittorrent.json"
 QBITTORRENT_MANAGEMENT_FILE = DATA_DIR / "qbittorrent-management.json"
 PATH_MAPPINGS_FILE = DATA_DIR / "path-mappings.json"
 AUTO_SCRAPE_HISTORY_FILE = DATA_DIR / "auto-scrape-history.json"
+SCRAPE_HISTORY_FILE = DATA_DIR / "scrape-history.txt"
 AUTO_SCRAPE_SCHEDULES_FILE = DATA_DIR / "auto-scrape-schedules.json"
 MEDIA_SERVERS_FILE = DATA_DIR / "media-servers.json"
 COOKIECLOUD_FILE = DATA_DIR / "cookiecloud.json"
@@ -178,6 +179,29 @@ def load_tasks() -> list[dict[str, Any]]:
 def save_tasks(tasks: list[dict[str, Any]]) -> None:
     with _lock:
         _write_json(TASKS_FILE, tasks)
+
+
+def read_scrape_history() -> list[dict[str, str]]:
+    """Read successful scrape keys without mixing state into the media tree."""
+    ensure_seed_data()
+    records: list[dict[str, str]] = []
+    try:
+        lines = SCRAPE_HISTORY_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return records
+    for line in lines:
+        parts = line.split("|", 2)
+        if len(parts) == 3 and parts[0] == "DONE" and parts[1].strip() and parts[2].strip():
+            records.append({"source": parts[1].strip(), "avid": parts[2].strip()})
+    return records
+
+
+def append_scrape_history(source: str, avid: str) -> None:
+    ensure_seed_data()
+    SCRAPE_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        with SCRAPE_HISTORY_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(f"DONE|{source}|{avid}\n")
 
 
 def list_presets() -> list[dict[str, Any]]:

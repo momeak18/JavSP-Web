@@ -167,15 +167,17 @@ class Movie:
             expression = f"('{self.dvdid}')"
         return __class__.__name__ + expression
 
-    def rename_files(self, use_hardlink: bool = False) -> None:
-        """根据命名规则移动（重命名）影片文件"""
+    def rename_files(self, use_hardlink: bool = False, copy_files: bool = False) -> None:
+        """根据命名规则移动、复制或硬链接影片文件。"""
         def move_file(src:str, dst:str):
             """移动（重命名）文件并记录信息到日志"""
             abs_dst = os.path.abspath(dst)
             # shutil.move might overwrite dst file
             if os.path.exists(abs_dst):
                 raise FileExistsError(f'File exists: {abs_dst}')
-            if (use_hardlink):
+            if copy_files:
+                shutil.copy2(src, abs_dst)
+            elif (use_hardlink):
                 os.link(src, abs_dst)
             else:
                 shutil.move(src, abs_dst)
@@ -183,7 +185,8 @@ class Movie:
             dst_name = os.path.basename(dst)
             logger.info(f"重命名文件: '{src_rel}' -> '...{os.sep}{dst_name}'")
             # 目前StreamHandler并未设置filter，为了避免显示中出现重复的日志，这里暂时只能用debug级别
-            filemove_logger.debug(f'移动（重命名）文件: \n  原路径: "{src}"\n  新路径: "{abs_dst}"')
+            action = '复制' if copy_files else ('硬链接' if use_hardlink else '移动（重命名）')
+            filemove_logger.debug(f'{action}文件: \n  原路径: "{src}"\n  新路径: "{abs_dst}"')
 
         new_paths = []
         dir = os.path.dirname(self.files[0])
@@ -200,7 +203,7 @@ class Movie:
                 move_file(fullpath, newpath)
                 new_paths.append(newpath)
         self.new_paths = new_paths
-        if len(os.listdir(dir)) == 0:
+        if not copy_files and len(os.listdir(dir)) == 0:
             #如果移动文件后目录为空则删除该目录
             os.rmdir(dir)
 

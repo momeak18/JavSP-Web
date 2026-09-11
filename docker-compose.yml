@@ -10,6 +10,8 @@ services:
       JAVSP_WEB_PORT: 8090
       JAVSP_WEB_TIMEZONE: Asia/Shanghai
       TZ: Asia/Shanghai
+      JAVSP_PROXY_SERVER: ${JAVSP_PROXY_SERVER:-}
+      JAVSP_WEB_OUTPUT_DIR: /video/done
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

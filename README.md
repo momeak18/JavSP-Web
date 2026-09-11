@@ -66,7 +66,9 @@ services:
 docker compose up -d
 ```
 
-影片放入 `./video`，或将 `./video` 改为本机的实际影片目录。网页中使用实际挂载的容器路径，例如 `/video/Movies` 或 `/mnt/movies`。默认时区为 `Asia/Shanghai`；可通过 `JAVSP_WEB_TIMEZONE` 和 `TZ` 覆盖。
+影片放入 `./video`，或将 `./video` 改为本机的实际影片目录。网页中使用实际挂载的容器路径，例如 `/video/Movies` 或 `/mnt/movies`。默认时区为 `Asia/Shanghai`；可通过 `JAVSP_WEB_TIMEZONE` 和 `TZ` 覆盖。Web 任务会保留 `/video` 下的原始 STRM，并将刮削结果复制到 `/video/done`；媒体服务器只应将 `/video/done` 加入媒体库。刮削历史保存于 `/app/data/scrape-history.txt`。
+
+如需显式代理，在 Compose 环境中设置 `JAVSP_PROXY_SERVER`，例如 `http://host.docker.internal:7890`。Compose 已配置 `host.docker.internal` 到宿主机网关的解析，不依赖固定的 Docker bridge 地址。
 
 ## 使用
 
