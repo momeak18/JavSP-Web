@@ -101,6 +101,24 @@ def ensure_seed_data() -> None:
                     "updated_at": now_iso(),
                 }],
             )
+        # Upgrade the seeded default preset created by older images so the UI
+        # reflects the Web copy-and-retain behavior after an image update.
+        presets = _read_json(PRESETS_FILE, [])
+        changed = False
+        if isinstance(presets, list):
+            for preset in presets:
+                if not isinstance(preset, dict) or preset.get("id") != "default":
+                    continue
+                form = preset.get("form") if isinstance(preset.get("form"), dict) else {}
+                summarizer = form.setdefault("summarizer", {})
+                if summarizer.get("copy_files") is not True:
+                    summarizer["copy_files"] = True
+                    changed = True
+                if preset.get("form") != form:
+                    preset["form"] = form
+                    changed = True
+        if changed:
+            _write_json(PRESETS_FILE, presets)
 
 
 def list_users() -> list[dict[str, Any]]:
