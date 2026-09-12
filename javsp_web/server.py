@@ -547,6 +547,11 @@ def _coerce_like(value, template):
             parsed = yaml.safe_load(value)
         except yaml.YAMLError:
             parsed = value
+        if isinstance(parsed, str) and isinstance(template, (list, dict)):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                pass
         # Older persisted forms can have the wrong template type. Still
         # recover YAML booleans, numbers, arrays and objects before Pydantic
         # validates the merged configuration.
