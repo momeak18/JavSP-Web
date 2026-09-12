@@ -1627,6 +1627,9 @@ function filteredTasks() {
   });
 }
 
+const selectedManualTasks = new Set();
+let cancellingManualTasks = false;
+
 function renderTasks() {
   ensureTaskFilters();
   rememberLogScroll();
@@ -1634,8 +1637,57 @@ function renderTasks() {
   const tasks = filteredTasks();
   $('#task-table').innerHTML = tasks.length ? tasks.map(taskCard).join('') : '<div class="task-list empty">没有符合当前筛选条件的任务</div>';
   $('#task-filter-summary').textContent = `显示 ${tasks.length} / ${state.tasks.length} 个任务`;
+  const activeIds = new Set(state.tasks.filter((task) => ['queued', 'running'].includes(task.status)).map((task) => task.id));
+  for (const id of selectedManualTasks) if (!activeIds.has(id)) selectedManualTasks.delete(id);
+  if (!$('#task-batch-tools')) $('#task-table').insertAdjacentHTML('beforebegin', '<div id="task-batch-tools" class="form-actions"></div>');
+  $('#task-batch-tools').innerHTML = `<button class="button secondary" data-task-select-visible type="button">全选筛选结果中的活动任务</button><button class="button secondary" data-task-clear-selection type="button">取消选择</button><button class="button danger" data-task-cancel-selected type="button" ${!selectedManualTasks.size || cancellingManualTasks ? 'disabled' : ''}>取消选中任务（${selectedManualTasks.size}）</button>`;
+  document.querySelectorAll('#task-table [data-task-card]').forEach((card) => {
+    const id = card.dataset.taskCard;
+    if (activeIds.has(id)) card.querySelector('.task-card-tools').insertAdjacentHTML('afterbegin', `<label><input type="checkbox" data-manual-task-select="${escapeHtml(id)}" ${selectedManualTasks.has(id) ? 'checked' : ''}>选择</label>`);
+  });
   restoreLogScroll();
 }
+
+document.addEventListener('change', (event) => {
+  const id = event.target.dataset.manualTaskSelect;
+  if (!id) return;
+  if (event.target.checked) selectedManualTasks.add(id);
+  else selectedManualTasks.delete(id);
+  renderTasks();
+});
+
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-task-select-visible]')) {
+    filteredTasks().filter((task) => ['queued', 'running'].includes(task.status)).forEach((task) => selectedManualTasks.add(task.id));
+    renderTasks();
+  }
+  if (event.target.closest('[data-task-clear-selection]')) {
+    selectedManualTasks.clear();
+    renderTasks();
+  }
+  if (!event.target.closest('[data-task-cancel-selected]') || cancellingManualTasks || !selectedManualTasks.size) return;
+  const ids = [...selectedManualTasks];
+  confirmAction({
+    title: '批量取消任务', text: `确定取消选中的 ${ids.length} 个排队或运行中的任务吗？`, confirmLabel: '取消选中任务', danger: true,
+    run: async () => {
+      cancellingManualTasks = true;
+      renderTasks();
+      const failures = [];
+      try {
+        for (let offset = 0; offset < ids.length; offset += 8) {
+          await Promise.all(ids.slice(offset, offset + 8).map(async (id) => {
+            try {
+              await api(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+              selectedManualTasks.delete(id);
+            } catch (error) { failures.push(`${id}: ${error.message}`); }
+          }));
+        }
+        await loadTasks();
+      } finally { cancellingManualTasks = false; renderTasks(); }
+      if (failures.length) throw new Error(`${failures.length} 个任务取消失败：${failures.join('；')}`);
+    },
+  });
+});
 
 async function openTaskDetail(taskId) {
   const summary = state.tasks.find((item) => item.id === taskId);

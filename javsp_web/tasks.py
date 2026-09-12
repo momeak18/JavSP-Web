@@ -923,7 +923,8 @@ def _build_task_config(task_id: str, input_directory: str, preset_id: str) -> tu
     path_config["output_folder_pattern"] = f"{output_root}/{{actress}}/[{{num}}] {{title}}"
     network = data.setdefault("network", {})
     proxy = os.environ.get("JAVSP_PROXY_SERVER", "").strip()
-    network["proxy_server"] = proxy or None
+    if proxy:
+        network["proxy_server"] = proxy
     path = DATA_DIR / "task-config" / f"{task_id}.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
