@@ -664,7 +664,7 @@ function taskCard(task) {
   const taskName = task.name || String(task.input_directory || '').split(/[\\/]/).pop();
   const log = lines ? `<div class="task-log-wrap"><pre class="task-log" data-task-log="${escapeHtml(task.id)}">${escapeHtml(lines)}</pre><button class="copy-log" type="button" data-copy-task="${escapeHtml(task.id)}">复制日志</button></div>` : '';
   const active = ['queued', 'running'].includes(task.status);
-  const actions = `<div class="form-actions task-actions">${task.status === 'running' ? `<button class="button secondary" onclick="cancelTask('${escapeHtml(task.id)}')">停止任务</button>` : ''}<button class="button secondary task-delete" data-delete-task="${escapeHtml(task.id)}"${active ? ' disabled title="请先停止任务"' : ''}>删除</button></div>`;
+  const actions = `<div class="form-actions task-actions">${active ? `<button class="button secondary" onclick="cancelTask('${escapeHtml(task.id)}')">停止任务</button>` : ''}<button class="button secondary task-delete" data-delete-task="${escapeHtml(task.id)}"${active ? ' disabled title="请先停止任务"' : ''}>删除</button></div>`;
   return `<article class="task-card"><div class="task-card-head"><div class="task-card-title"><strong>${escapeHtml(taskName)}</strong><div class="task-meta"><span>预设：${escapeHtml(task.preset_name || task.preset_id || '默认配置')}</span><span>时间：${new Date(task.created_at).toLocaleString()}</span></div></div><span class="badge ${task.status}">${labels[task.status] || task.status}</span></div><div class="task-path">路径：${escapeHtml(task.input_directory)}</div>${task.error ? `<div class="form-error">${escapeHtml(task.error)}</div>` : ''}${log}${actions}</article>`;
 }
 
@@ -709,7 +709,7 @@ function taskCard(task) {
   const lines = (task.log_tail || []).join('\n');
   const taskName = task.name || String(task.input_directory || '').split(/[\\/]/).pop();
   const rawLog = lines ? `<details class="task-raw-log" data-task-details="${escapeHtml(task.id)}"><summary>查看日志 (${task.log_tail.length} 行)</summary><div class="task-log-wrap"><pre class="task-log" data-task-log="${escapeHtml(task.id)}">${escapeHtml(lines)}</pre><button class="copy-log" type="button" data-copy-task="${escapeHtml(task.id)}">复制日志</button></div></details>` : '';
-  const active = task.status === 'running';
+  const active = ['queued', 'running'].includes(task.status);
   const actions = `<div class="form-actions task-actions">${active ? `<button class="button secondary" onclick="cancelTask('${escapeHtml(task.id)}')">停止任务</button>` : ''}<button class="button secondary task-delete" data-delete-task="${escapeHtml(task.id)}"${active ? ' disabled title="请先停止任务"' : ''}>删除</button></div>`;
   return `<article class="task-card"><div class="task-card-head"><div class="task-card-title"><strong>${escapeHtml(taskName)}</strong><div class="task-meta"><span>预设：${escapeHtml(task.preset_name || task.preset_id || '默认配置')}</span><span>时间：${new Date(task.created_at).toLocaleString()}</span></div></div><span class="badge ${task.status}">${labels[task.status] || task.status}</span></div><div class="task-path">路径：${escapeHtml(task.input_directory)}</div>${progressMarkup(task)}${task.error ? `<div class="form-error">${escapeHtml(task.error)}</div>` : ''}${rawLog}${actions}</article>`;
 }
@@ -1606,7 +1606,6 @@ function filteredTasks() {
   const from = $('#task-filter-date-from')?.value;
   const to = $('#task-filter-date-to')?.value;
   return state.tasks.filter((task) => {
-    if (task.source && task.source !== 'manual' && !task.image_retry_started_at) return false;
     const metadata = task.progress?.metadata || {};
     const values = {
       path: task.input_directory || '', title: task.title || metadata.title || '', dvdid: metadata.dvdid || '',
@@ -1631,8 +1630,7 @@ function renderTasks() {
   rememberTaskCards();
   const tasks = filteredTasks();
   $('#task-table').innerHTML = tasks.length ? tasks.map(taskCard).join('') : '<div class="task-list empty">没有符合当前筛选条件的任务</div>';
-  const manualTaskCount = state.tasks.filter((task) => !task.source || task.source === 'manual' || task.image_retry_started_at).length;
-  $('#task-filter-summary').textContent = `显示 ${tasks.length} / ${manualTaskCount} 个手动任务`;
+  $('#task-filter-summary').textContent = `显示 ${tasks.length} / ${state.tasks.length} 个任务`;
   restoreLogScroll();
 }
 
@@ -2142,7 +2140,7 @@ function scheduleRunTaskMarkup(task) {
   const expanded = state.taskOpen?.[logKey] ?? task.status === 'running';
   const lines = (task.log_tail || []).join('\n');
   const log = lines ? `<details class="task-raw-log" data-task-details="${escapeHtml(logKey)}"><summary>查看日志 (${task.log_tail.length} 行)</summary><div class="task-log-wrap"><pre class="task-log" data-task-log="${escapeHtml(logKey)}">${escapeHtml(lines)}</pre><button class="copy-log" type="button" data-copy-task="${escapeHtml(logKey)}">复制日志</button></div></details>` : '<p class="muted">任务尚未输出日志。</p>';
-  const stopButton = task.status === 'running' ? `<button class="button secondary task-stop" type="button" onclick="cancelTask('${escapeHtml(task.id)}')">中止任务</button>` : '';
+  const stopButton = ['queued', 'running'].includes(task.status) ? `<button class="button secondary task-stop" type="button" onclick="cancelTask('${escapeHtml(task.id)}')">中止任务</button>` : '';
   return `<article class="task-card task-card-collapsible schedule-run-task" data-task-card="${escapeHtml(logKey)}"><div class="task-card-head"><div class="task-card-title"><strong>${escapeHtml(taskDisplayName(task))}</strong><div class="task-meta"><span>预设：${escapeHtml(task.preset_name || task.preset_id || '默认配置')}</span><span>时间：${new Date(task.created_at).toLocaleString()}</span></div><div class="task-path">路径：${escapeHtml(task.input_directory)}</div><div class="task-image-summary">${escapeHtml(imageProgressSummary(task))}</div></div><div class="task-card-tools"><span class="badge ${task.status}">${labels[task.status] || task.status}</span>${stopButton}<button class="task-toggle" type="button" data-task-toggle="${escapeHtml(logKey)}" aria-expanded="${expanded}" title="${expanded ? '收起任务' : '展开任务'}">${expandControlIcon(expanded)}</button></div></div><div class="task-card-body${expanded ? '' : ' hidden'}" data-task-body="${escapeHtml(logKey)}">${progressMarkup(task)}${task.error ? `<div class="form-error">${escapeHtml(task.error)}</div>` : ''}${log}</div></article>`;
 }
 
