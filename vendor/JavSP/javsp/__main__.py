@@ -608,7 +608,7 @@ def RunNormalMode(all_movies):
             write_nfo(movie.info, movie.nfo_file)
             check_step(True)
             if Cfg().summarizer.move_files:
-                inner_bar.set_description('移动影片文件')
+                inner_bar.set_description('复制影片文件' if Cfg().summarizer.copy_files else '移动影片文件')
                 movie.rename_files(Cfg().summarizer.path.hard_link, Cfg().summarizer.copy_files)
                 check_step(True)
                 progress_event('file_organizer', original_files=list(movie.files), organized_files=list(getattr(movie, 'new_paths', []) or []), generated_files=[movie.nfo_file, movie.fanart_file, movie.poster_file])
