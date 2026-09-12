@@ -562,6 +562,15 @@ def _base_config() -> dict:
     return load_base_config()
 
 
+def _config_type_template() -> dict:
+    """Return the shipped config schema, unaffected by legacy user values."""
+    try:
+        template = yaml.safe_load((VENDOR_DIR / "config.yml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        template = {}
+    return template if isinstance(template, dict) else {}
+
+
 _CRAWLER_IDS = {
     "airav", "avsox", "avwiki", "dl_getchu", "fanza", "fc2", "fc2fan", "fc2ppvdb", "gyutto",
     "jav321", "javbus", "javdb", "javlib", "javmenu", "mgstage", "njav", "prestige", "arzon", "arzon_iv",
@@ -612,6 +621,7 @@ def _crawler_source(name: str) -> dict | None:
 
 def _normalize_form(form: dict, base: dict | None = None) -> dict:
     base = base or _base_config()
+    type_template = _config_type_template()
     normalized = {}
     for section, value in form.items():
         if not isinstance(value, (str, dict)):
@@ -624,7 +634,7 @@ def _normalize_form(form: dict, base: dict | None = None) -> dict:
         if not isinstance(value, dict):
             raise HTTPException(status_code=400, detail=f"分类 {section} 的根节点必须是对象")
         value = _drop_empty_strings(value) or {}
-        normalized[section] = _coerce_like(value, base.get(section, {}))
+        normalized[section] = _coerce_like(value, type_template.get(section, base.get(section, {})))
     # Browser controls submit booleans and collection editors as text. Keep
     # naming templates as strings, but recover these known structured fields
     # even when an older persisted preset has a wrong template type.
@@ -666,11 +676,18 @@ def _public_preset(preset: dict) -> dict:
         result["task_concurrency"] = 1
     base = _base_config()
     if result.get("mode") == "form":
+        stored_form = result.get("form") or {}
+        try:
+            stored_form = _normalize_form(stored_form, base)
+        except HTTPException:
+            # Keep the preset visible even if it was saved by an older version;
+            # the edit form can still repair it on the next save.
+            stored_form = result.get("form") or {}
         result["form_text"] = {
             section: yaml.safe_dump(value or {}, allow_unicode=True, sort_keys=False)
-            for section, value in (result.get("form") or {}).items()
+            for section, value in stored_form.items()
         }
-        result["form_values"] = _deep_merge(base, result.get("form") or {})
+        result["form_values"] = _deep_merge(base, stored_form)
     elif result.get("content"):
         try:
             parsed = yaml.safe_load(result["content"]) or {}

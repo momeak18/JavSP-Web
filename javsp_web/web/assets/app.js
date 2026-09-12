@@ -51,6 +51,8 @@ const FIELD_LABELS = {
 };
 FIELD_LABELS['summarizer.cover.google_search_fallback'] = 'Google 搜索封面兜底';
 FIELD_LABELS['scanner.media_types'] = '影片分类';
+FIELD_LABELS['summarizer.move_files'] = '启用文件整理';
+FIELD_LABELS['summarizer.copy_files'] = '复制文件并保留原始文件';
 
 FIELD_LABELS['scanner.strm_ignore_minimum_size'] = 'STRM 忽略最小文件大小';
 
