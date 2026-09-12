@@ -541,12 +541,17 @@ def _coerce_like(value, template):
         template = template if isinstance(template, dict) else {}
         return {key: _coerce_like(item, template.get(key)) for key, item in value.items()}
     if isinstance(value, str):
-        if isinstance(template, str):
-            return value
         try:
             parsed = yaml.safe_load(value)
         except yaml.YAMLError:
             parsed = value
+        # Older persisted forms can have the wrong template type. Still
+        # recover YAML booleans, numbers, arrays and objects before Pydantic
+        # validates the merged configuration.
+        if isinstance(parsed, (bool, list, dict, int, float)):
+            return parsed
+        if isinstance(template, str):
+            return value
         if parsed is None and value.strip() not in {"", "null", "~"}:
             return value
         return parsed
