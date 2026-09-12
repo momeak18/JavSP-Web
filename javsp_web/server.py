@@ -541,6 +541,8 @@ def _coerce_like(value, template):
         template = template if isinstance(template, dict) else {}
         return {key: _coerce_like(item, template.get(key)) for key, item in value.items()}
     if isinstance(value, str):
+        if isinstance(template, str):
+            return value
         try:
             parsed = yaml.safe_load(value)
         except yaml.YAMLError:
@@ -550,8 +552,6 @@ def _coerce_like(value, template):
         # validates the merged configuration.
         if isinstance(parsed, (bool, list, dict, int, float)):
             return parsed
-        if isinstance(template, str):
-            return value
         if parsed is None and value.strip() not in {"", "null", "~"}:
             return value
         return parsed
@@ -625,6 +625,23 @@ def _normalize_form(form: dict, base: dict | None = None) -> dict:
             raise HTTPException(status_code=400, detail=f"分类 {section} 的根节点必须是对象")
         value = _drop_empty_strings(value) or {}
         normalized[section] = _coerce_like(value, base.get(section, {}))
+    # Browser controls submit booleans and collection editors as text. Keep
+    # naming templates as strings, but recover these known structured fields
+    # even when an older persisted preset has a wrong template type.
+    scanner = normalized.setdefault("scanner", {})
+    media_types = scanner.get("media_types")
+    if isinstance(media_types, str):
+        try:
+            parsed_media_types = yaml.safe_load(media_types)
+        except yaml.YAMLError:
+            parsed_media_types = None
+        if isinstance(parsed_media_types, list):
+            scanner["media_types"] = parsed_media_types
+    fields = normalized.setdefault("translator", {}).setdefault("fields", {})
+    for key in ("title", "plot"):
+        value = fields.get(key)
+        if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+            fields[key] = value.strip().lower() == "true"
     media_types = normalized.get("scanner", {}).get("media_types")
     selection = normalized.get("crawler", {}).get("selection")
     if isinstance(media_types, list) and isinstance(selection, dict):

@@ -235,7 +235,7 @@ class Summarizer(BaseConfig):
     title: TitleSummarize
     move_files: bool = True
     # Web wrapper can copy source media into its library while retaining the original.
-    copy_files: bool = False
+    copy_files: bool = True
     path: PathSummarize
     nfo: NFOSummarize
     cover: CoverSummarize
