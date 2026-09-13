@@ -1638,12 +1638,15 @@ function renderTasks() {
   $('#task-table').innerHTML = tasks.length ? tasks.map(taskCard).join('') : '<div class="task-list empty">没有符合当前筛选条件的任务</div>';
   $('#task-filter-summary').textContent = `显示 ${tasks.length} / ${state.tasks.length} 个任务`;
   const activeIds = new Set(state.tasks.filter((task) => ['queued', 'running'].includes(task.status)).map((task) => task.id));
-  for (const id of selectedManualTasks) if (!activeIds.has(id)) selectedManualTasks.delete(id);
+  const availableIds = new Set(state.tasks.map((task) => task.id));
+  for (const id of selectedManualTasks) if (!availableIds.has(id)) selectedManualTasks.delete(id);
+  const activeCount = [...selectedManualTasks].filter((id) => activeIds.has(id)).length;
+  const endedCount = selectedManualTasks.size - activeCount;
   if (!$('#task-batch-tools')) $('#task-table').insertAdjacentHTML('beforebegin', '<div id="task-batch-tools" class="form-actions"></div>');
-  $('#task-batch-tools').innerHTML = `<button class="button secondary" data-task-select-visible type="button">全选筛选结果中的活动任务</button><button class="button secondary" data-task-clear-selection type="button">取消选择</button><button class="button danger" data-task-cancel-selected type="button" ${!selectedManualTasks.size || cancellingManualTasks ? 'disabled' : ''}>取消选中任务（${selectedManualTasks.size}）</button>`;
+  $('#task-batch-tools').innerHTML = `<button class="button secondary" data-task-select-visible type="button" ${!tasks.length ? 'disabled' : ''}>全选筛选结果</button><button class="button secondary" data-task-clear-selection type="button">取消选择</button><span>已选 ${selectedManualTasks.size} 项</span><button class="button danger" data-task-cancel-selected type="button" ${!activeCount || cancellingManualTasks ? 'disabled' : ''}>取消活动任务（${activeCount}）</button><button class="button danger" data-task-delete-selected type="button" ${!endedCount || cancellingManualTasks ? 'disabled' : ''}>删除结束记录（${endedCount}）</button>`;
   document.querySelectorAll('#task-table [data-task-card]').forEach((card) => {
     const id = card.dataset.taskCard;
-    if (activeIds.has(id)) card.querySelector('.task-card-tools').insertAdjacentHTML('afterbegin', `<label><input type="checkbox" data-manual-task-select="${escapeHtml(id)}" ${selectedManualTasks.has(id) ? 'checked' : ''}>选择</label>`);
+    card.querySelector('.task-card-tools').insertAdjacentHTML('afterbegin', `<label><input type="checkbox" data-manual-task-select="${escapeHtml(id)}" ${selectedManualTasks.has(id) ? 'checked' : ''}>选择</label>`);
   });
   restoreLogScroll();
 }
@@ -1658,17 +1661,19 @@ document.addEventListener('change', (event) => {
 
 document.addEventListener('click', (event) => {
   if (event.target.closest('[data-task-select-visible]')) {
-    filteredTasks().filter((task) => ['queued', 'running'].includes(task.status)).forEach((task) => selectedManualTasks.add(task.id));
+    filteredTasks().forEach((task) => selectedManualTasks.add(task.id));
     renderTasks();
   }
   if (event.target.closest('[data-task-clear-selection]')) {
     selectedManualTasks.clear();
     renderTasks();
   }
-  if (!event.target.closest('[data-task-cancel-selected]') || cancellingManualTasks || !selectedManualTasks.size) return;
-  const ids = [...selectedManualTasks];
+  const deleting = Boolean(event.target.closest('[data-task-delete-selected]'));
+  if ((!deleting && !event.target.closest('[data-task-cancel-selected]')) || cancellingManualTasks || !selectedManualTasks.size) return;
+  const ids = state.tasks.filter((task) => selectedManualTasks.has(task.id) && (deleting ? ['succeeded', 'failed', 'cancelled'].includes(task.status) : ['queued', 'running'].includes(task.status))).map((task) => task.id);
+  if (!ids.length) return;
   confirmAction({
-    title: '批量取消任务', text: `确定取消选中的 ${ids.length} 个排队或运行中的任务吗？`, confirmLabel: '取消选中任务', danger: true,
+    title: deleting ? '批量删除记录' : '批量取消任务', text: deleting ? `确定删除选中的 ${ids.length} 条已结束记录吗？不删除视频、STRM、NFO 或海报文件。` : `确定取消选中的 ${ids.length} 个排队或运行中的任务吗？`, confirmLabel: deleting ? '删除记录' : '取消选中任务', danger: true,
     run: async () => {
       cancellingManualTasks = true;
       renderTasks();
@@ -1677,14 +1682,14 @@ document.addEventListener('click', (event) => {
         for (let offset = 0; offset < ids.length; offset += 8) {
           await Promise.all(ids.slice(offset, offset + 8).map(async (id) => {
             try {
-              await api(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+              await api(`/api/tasks/${encodeURIComponent(id)}${deleting ? '' : '/cancel'}`, { method: deleting ? 'DELETE' : 'POST' });
               selectedManualTasks.delete(id);
             } catch (error) { failures.push(`${id}: ${error.message}`); }
           }));
         }
         await loadTasks();
       } finally { cancellingManualTasks = false; renderTasks(); }
-      if (failures.length) throw new Error(`${failures.length} 个任务取消失败：${failures.join('；')}`);
+      if (failures.length) throw new Error(`${failures.length} 个任务${deleting ? '删除' : '取消'}失败：${failures.join('；')}`);
     },
   });
 });
