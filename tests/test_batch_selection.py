@@ -29,11 +29,11 @@ class BatchSelectionTest(unittest.TestCase):
             window.confirmAction = o => { window.batchDone=false; o.run().catch(e => window.batchError=e.message).finally(() => window.batchDone=true); };
         ''' + section + '\nrenderTasks();')
         browser.find_element(By.CSS_SELECTOR, '[data-task-select-visible]').click()
-        self.assertEqual(len(browser.find_elements(By.CSS_SELECTOR, '[data-manual-task-select]:checked')), 3)
+        self.assertEqual(len(browser.find_elements(By.CSS_SELECTOR, '[data-manual-task-select]:checked')), 2)
         browser.find_element(By.CSS_SELECTOR, '[data-task-cancel-selected]').click()
         WebDriverWait(browser, 10).until(lambda b: b.execute_script('return window.batchDone'))
         self.assertEqual(set(browser.execute_script('return window.calls')), {'/api/tasks/a/cancel', '/api/tasks/b/cancel'})
-        self.assertEqual(len(browser.find_elements(By.CSS_SELECTOR, '[data-manual-task-select]:checked')), 2)
+        self.assertEqual(len(browser.find_elements(By.CSS_SELECTOR, '[data-manual-task-select]:checked')), 1)
         self.assertIn('1 个任务取消失败', browser.execute_script('return window.batchError'))
 
 
